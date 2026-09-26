@@ -1,0 +1,9 @@
+{
+  "name": "DeepSeek Peak Alert",
+  "task": [
+    {
+      "config": "*/5 * * * * https://raw.githubusercontent.com/YOUR-USERNAME/YOUR-REPO/main/deepseek_peak_alert.js, tag=DeepSeek Peak Alert, enabled=true"
+    }
+  ],
+  "description": "Notifies you when DeepSeek API pricing switches between peak and off-peak (schedule auto-synced from deepseek-peak-hours.sivaram.dev)"
+}
