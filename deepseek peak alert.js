@@ -97,9 +97,12 @@ function applyScheduleResponse(body) {
       })
       setConfig("windows_utc", JSON.stringify(windows))
       setConfig("multiplier", String(sched.peak_multiplier_vs_off_peak || DEFAULT_MULTIPLIER))
+      console.log("[DeepSeek Peak Alert] schedule synced: " + JSON.stringify(windows) + " x" + (sched.peak_multiplier_vs_off_peak || DEFAULT_MULTIPLIER))
+    } else {
+      console.log("[DeepSeek Peak Alert] sync response had no usable schedule, keeping cached values")
     }
   } catch (e) {
-    // Parsing failed; keep using cached/default values.
+    console.log("[DeepSeek Peak Alert] failed to parse sync response: " + (e && e.message ? e.message : e))
   }
 }
 
@@ -109,6 +112,13 @@ function maybeSyncSchedule(done) {
   const nowTs = Date.now()
 
   if (nowTs - lastSync < intervalHours * 3600 * 1000) {
+    console.log(
+      "[DeepSeek Peak Alert] skip sync, last synced " +
+        Math.round((nowTs - lastSync) / 60000) +
+        " min ago (interval=" +
+        intervalHours +
+        "h)"
+    )
     done()
     return
   }
@@ -123,33 +133,55 @@ function maybeSyncSchedule(done) {
   // throwing "Can't find variable: $httpClient", just skip the sync and
   // keep using the cached/default schedule.
   if (typeof $httpClient !== "undefined" && typeof $httpClient.get === "function") {
+    console.log("[DeepSeek Peak Alert] syncing schedule via $httpClient ...")
     try {
       $httpClient.get(STATUS_API, (err, resp, body) => {
-        if (!err && body) applyScheduleResponse(body)
+        if (err) {
+          console.log("[DeepSeek Peak Alert] $httpClient error: " + err)
+        } else if (body) {
+          applyScheduleResponse(body)
+        }
         finish()
       })
     } catch (e) {
+      console.log("[DeepSeek Peak Alert] $httpClient threw: " + (e && e.message ? e.message : e))
       finish()
     }
   } else if (typeof $task !== "undefined" && typeof $task.fetch === "function") {
     // Newer QX Promise-based API as a fallback.
+    console.log("[DeepSeek Peak Alert] syncing schedule via $task.fetch ...")
     $task
       .fetch({ url: STATUS_API, method: "GET" })
       .then((resp) => {
         if (resp && resp.body) applyScheduleResponse(resp.body)
         finish()
       })
-      .catch(() => finish())
+      .catch((e) => {
+        console.log("[DeepSeek Peak Alert] $task.fetch error: " + (e && e.message ? e.message : e))
+        finish()
+      })
   } else {
     // No HTTP API available in this context at all; run on cached/default schedule.
+    console.log("[DeepSeek Peak Alert] no HTTP API available, using cached/default schedule")
     finish()
   }
 }
 
 function main() {
+  console.log("[DeepSeek Peak Alert] run start @ " + new Date().toISOString())
+
   if (getConfig("enable", "true") !== "true") {
+    console.log("[DeepSeek Peak Alert] disabled via ds_peak_enable, skipping")
     $done()
     return
+  }
+
+  if (getConfig("force_test", "false") === "true") {
+    console.log("[DeepSeek Peak Alert] force_test is on -> resetting cached state for a guaranteed test run")
+    setConfig("last_state", "")
+    setConfig("ahead_notified_epoch", "")
+    setConfig("last_sync_ts", "0")
+    setConfig("force_test", "false")
   }
 
   maybeSyncSchedule(() => {
@@ -157,14 +189,27 @@ function main() {
     const multiplier = getConfig("multiplier", DEFAULT_MULTIPLIER)
     const ahead = parseInt(getConfig("ahead_minutes", "15"), 10) || 15
 
+    console.log("[DeepSeek Peak Alert] windows_utc = " + JSON.stringify(windows))
+    console.log("[DeepSeek Peak Alert] multiplier = " + multiplier + "x, ahead_minutes = " + ahead)
+
     const now = new Date()
     const nowMin = now.getUTCHours() * 60 + now.getUTCMinutes()
     const peakNow = isPeakNow(windows, nowMin)
     const currentState = peakNow ? "peak" : "offpeak"
     const lastState = getConfig("last_state", "")
 
+    console.log(
+      "[DeepSeek Peak Alert] now_utc=" +
+        now.toISOString() +
+        " currentState=" +
+        currentState +
+        " lastState=" +
+        (lastState || "(none)")
+    )
+
     // 1. Notify once right when the state flips
     if (currentState !== lastState) {
+      console.log("[DeepSeek Peak Alert] state flip detected -> sending notification")
       if (peakNow) {
         $notify(
           "DeepSeek · Peak pricing started",
@@ -179,6 +224,8 @@ function main() {
         )
       }
       setConfig("last_state", currentState)
+    } else {
+      console.log("[DeepSeek Peak Alert] no state change since last run")
     }
 
     // 2. Notify N minutes ahead of the next flip (de-duplicated by the exact
@@ -187,7 +234,16 @@ function main() {
     if (nextEpoch) {
       const minutesToNext = Math.round((nextEpoch - now.getTime()) / 60000)
       const notifiedEpoch = getConfig("ahead_notified_epoch", "")
+      console.log(
+        "[DeepSeek Peak Alert] next boundary @ " +
+          new Date(nextEpoch).toISOString() +
+          " (" +
+          minutesToNext +
+          " min away), already notified for this boundary: " +
+          (notifiedEpoch === String(nextEpoch))
+      )
       if (minutesToNext <= ahead && notifiedEpoch !== String(nextEpoch)) {
+        console.log("[DeepSeek Peak Alert] within advance-warning window -> sending notification")
         if (peakNow) {
           $notify("DeepSeek reminder", `Peak pricing ends in about ${minutesToNext} min`, "")
         } else {
@@ -195,10 +251,18 @@ function main() {
         }
         setConfig("ahead_notified_epoch", String(nextEpoch))
       }
+    } else {
+      console.log("[DeepSeek Peak Alert] could not compute next boundary")
     }
 
+    console.log("[DeepSeek Peak Alert] run end")
     $done()
   })
 }
 
-main()
+try {
+  main()
+} catch (e) {
+  console.log("[DeepSeek Peak Alert] FATAL ERROR: " + (e && e.message ? e.message : e))
+  $done()
+}

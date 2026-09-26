@@ -6,6 +6,7 @@
   "tiles": [
     { "id": 1, "title": "Enable alerts", "type": "switch", "key": "ds_peak_enable", "default": true },
     { "id": 2, "title": "Advance warning (minutes)", "type": "input", "key": "ds_peak_ahead_minutes", "default": "15" },
-    { "id": 3, "title": "Schedule sync interval (hours)", "type": "input", "key": "ds_peak_sync_interval_hours", "default": "24" }
+    { "id": 3, "title": "Schedule sync interval (hours)", "type": "input", "key": "ds_peak_sync_interval_hours", "default": "24" },
+    { "id": 4, "title": "Force test run (resets on next run)", "type": "switch", "key": "ds_peak_force_test", "default": false }
   ]
 }
