@@ -1,24 +1,23 @@
-/*
- * DeepSeek Peak-Hour Pricing Alert - Quantumult X + BoxJs
- *
- * Data source: https://deepseek-peak-hours.sivaram.dev/api/status
- * That endpoint returns the official UTC peak-hour schedule and notes the
- * schedule is static, so it should be cached and computed locally instead
- * of being polled on every run. This script only re-syncs the schedule
- * every sync_interval_hours (default 24h); every other run just compares
- * the cached schedule against the current time.
- *
- * Features:
- * 1. Periodically syncs the official peak-hour schedule + multiplier into BoxJs
- * 2. Each run checks current time against the cached schedule
- * 3. Notifies once right when the state (peak/off-peak) actually flips
- * 4. Notifies once N minutes ahead of the next flip (de-duplicated per exact
- *    boundary timestamp, so the two daily peak windows don't clash)
- * 5. All parameters are stored in BoxJs and editable without touching code
- *
- * Setup: add to QX's [task_local], e.g. running every 5 minutes:
- * */5 * * * * https://your-host/deepseek_peak_alert.js, tag=DeepSeek Peak Alert, enabled=true
- */
+// DeepSeek Peak-Hour Pricing Alert - Quantumult X + BoxJs
+//
+// Data source: https://deepseek-peak-hours.sivaram.dev/api/status
+// That endpoint returns the official UTC peak-hour schedule and notes the
+// schedule is static, so it should be cached and computed locally instead
+// of being polled on every run. This script only re-syncs the schedule
+// every sync_interval_hours (default 24h); every other run just compares
+// the cached schedule against the current time.
+//
+// Features:
+// 1. Periodically syncs the official peak-hour schedule + multiplier into BoxJs
+// 2. Each run checks current time against the cached schedule
+// 3. Notifies once right when the state (peak/off-peak) actually flips
+// 4. Notifies once N minutes ahead of the next flip (de-duplicated per exact
+//    boundary timestamp, so the two daily peak windows don't clash)
+// 5. All parameters are stored in BoxJs and editable without touching code
+//
+// Setup: add to QX's [task_local], e.g. running every 5 minutes:
+// (5-minute-interval) * * * * https://your-host/deepseek_peak_alert.js, tag=DeepSeek Peak Alert, enabled=true
+// (see deepseek_peak_gallery.json for the exact cron line to paste)
 
 const KEY_PREFIX = "ds_peak_"
 const STATUS_API = "https://deepseek-peak-hours.sivaram.dev/api/status"
