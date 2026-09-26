@@ -86,6 +86,23 @@ function nextBoundaryEpoch(windows) {
   return future[0]
 }
 
+function applyScheduleResponse(body) {
+  try {
+    const data = JSON.parse(body)
+    const sched = data.schedule
+    if (sched && Array.isArray(sched.peak_windows_utc)) {
+      const windows = sched.peak_windows_utc.map((s) => {
+        const [start, end] = s.split("-")
+        return { start, end }
+      })
+      setConfig("windows_utc", JSON.stringify(windows))
+      setConfig("multiplier", String(sched.peak_multiplier_vs_off_peak || DEFAULT_MULTIPLIER))
+    }
+  } catch (e) {
+    // Parsing failed; keep using cached/default values.
+  }
+}
+
 function maybeSyncSchedule(done) {
   const lastSync = parseInt(getConfig("last_sync_ts", "0"), 10)
   const intervalHours = parseInt(getConfig("sync_interval_hours", "24"), 10) || 24
@@ -96,26 +113,37 @@ function maybeSyncSchedule(done) {
     return
   }
 
-  $httpClient.get(STATUS_API, (err, resp, body) => {
-    if (!err && body) {
-      try {
-        const data = JSON.parse(body)
-        const sched = data.schedule
-        if (sched && Array.isArray(sched.peak_windows_utc)) {
-          const windows = sched.peak_windows_utc.map((s) => {
-            const [start, end] = s.split("-")
-            return { start, end }
-          })
-          setConfig("windows_utc", JSON.stringify(windows))
-          setConfig("multiplier", String(sched.peak_multiplier_vs_off_peak || DEFAULT_MULTIPLIER))
-        }
-      } catch (e) {
-        // Parsing failed; keep using cached/default values.
-      }
-    }
+  const finish = () => {
     setConfig("last_sync_ts", String(nowTs))
     done()
-  })
+  }
+
+  // Feature-detect the HTTP API. Some QX contexts (older versions, certain
+  // test/debug entry points) don't expose $httpClient at all; rather than
+  // throwing "Can't find variable: $httpClient", just skip the sync and
+  // keep using the cached/default schedule.
+  if (typeof $httpClient !== "undefined" && typeof $httpClient.get === "function") {
+    try {
+      $httpClient.get(STATUS_API, (err, resp, body) => {
+        if (!err && body) applyScheduleResponse(body)
+        finish()
+      })
+    } catch (e) {
+      finish()
+    }
+  } else if (typeof $task !== "undefined" && typeof $task.fetch === "function") {
+    // Newer QX Promise-based API as a fallback.
+    $task
+      .fetch({ url: STATUS_API, method: "GET" })
+      .then((resp) => {
+        if (resp && resp.body) applyScheduleResponse(resp.body)
+        finish()
+      })
+      .catch(() => finish())
+  } else {
+    // No HTTP API available in this context at all; run on cached/default schedule.
+    finish()
+  }
 }
 
 function main() {
